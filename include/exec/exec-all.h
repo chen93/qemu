@@ -60,10 +60,12 @@ bool cpu_restore_state(CPUState *cpu, uintptr_t searched_pc);
 
 void QEMU_NORETURN cpu_loop_exit_noexc(CPUState *cpu);
 void QEMU_NORETURN cpu_io_recompile(CPUState *cpu, uintptr_t retaddr);
+TranslationBlock *tb_req_gen_code(CPUState *cpu, int cflags);
 TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
                               uint32_t flags,
                               int cflags);
+void *qemu_tb_gen_cpu_thread_fn(void *arg);
 
 void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
 void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
@@ -424,6 +426,8 @@ extern uintptr_t tci_tb_ptr;
    is also the case that there are no host isas that contain a call insn
    smaller than 4 bytes, so we don't worry about special-casing this.  */
 #define GETPC_ADJ   2
+void tb_req_lock(CPUState *cpu);
+void tb_req_unlock(CPUState *cpu);
 
 void tb_lock(void);
 void tb_unlock(void);

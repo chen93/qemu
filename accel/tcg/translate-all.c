@@ -181,6 +181,16 @@ static void page_table_config_init(void)
     assert(v_l2_levels >= 0);
 }
 
+void tb_req_lock(CPUState *cpu)
+{
+    qemu_mutex_lock(&cpu->tb_req.tb_req_lock);
+}
+
+void tb_req_unlock(CPUState *cpu)
+{
+    qemu_mutex_unlock(&cpu->tb_req.tb_req_lock);
+}
+
 #define assert_tb_locked() tcg_debug_assert(have_tb_lock)
 #define assert_tb_unlocked() tcg_debug_assert(!have_tb_lock)
 
@@ -1241,6 +1251,18 @@ static void tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
 #endif
 }
 
+/* Request to gen tb in tb_gen thread.  */
+TranslationBlock *tb_req_gen_code(CPUState *cpu, int cflags)
+{
+    cpu->tb_req.cflags = cflags;
+    cpu->tb_req.tb = NULL;
+    qemu_cond_signal(&cpu->tb_req.tb_req_cond_p);
+    tb_req_lock(cpu);
+    qemu_cond_wait(&cpu->tb_req.tb_req_cond_c, &cpu->tb_req.tb_req_lock);
+    tb_req_unlock(cpu);
+    return cpu->tb_req.tb;
+}
+
 /* Called with mmap_lock held for user mode emulation.  */
 TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
@@ -1398,6 +1420,26 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb_link_page(tb, phys_pc, phys_page2);
     g_tree_insert(tb_ctx.tb_tree, &tb->tc, tb);
     return tb;
+}
+
+void *qemu_tb_gen_cpu_thread_fn(void *arg)
+{
+    CPUState *cpu = arg;
+    target_ulong cs_base, pc;
+    uint32_t flags;
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
+
+    while(1) {
+        tb_req_lock(cpu);
+        qemu_cond_wait(&cpu->tb_req.tb_req_cond_p, &cpu->tb_req.tb_req_lock);
+        cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
+        tb_lock();
+        tb_gen_code(cpu, pc, cs_base, flags, cpu->tb_req.cflags);
+        tb_unlock();
+        tb_req_unlock(cpu);
+        qemu_cond_signal(&cpu->tb_req.tb_req_cond_c);
+    }
+
 }
 
 /*

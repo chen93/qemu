@@ -391,15 +391,20 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
          */
         mmap_lock();
         tb_lock();
-        acquired_tb_lock = true;
+        //acquired_tb_lock = true;
 
         /* There's a chance that our desired tb has been translated while
          * taking the locks so we check again inside the lock.
          */
         tb = tb_htable_lookup(cpu, pc, cs_base, flags, cf_mask);
+        tb_unlock();
         if (likely(tb == NULL)) {
             /* if no translated code available, then translate it now */
+#if 0
             tb = tb_gen_code(cpu, pc, cs_base, flags, cf_mask);
+#else
+            tb = tb_req_gen_code(cpu, cf_mask);
+#endif
         }
 
         mmap_unlock();

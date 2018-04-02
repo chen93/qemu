@@ -1302,9 +1302,13 @@ static void deal_with_unplugged_cpus(void)
  * elsewhere.
  */
 
+/* For temporary buffers for forming a name */
+#define VCPU_THREAD_NAME_SIZE 16
+
 static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
 {
     CPUState *cpu = arg;
+    char thread_name[VCPU_THREAD_NAME_SIZE];
 
     rcu_register_thread();
     tcg_register_thread();
@@ -1336,6 +1340,15 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
 
     /* process any pending work */
     cpu->exit_request = 1;
+    /* create tb generate thread. */
+    cpu->tb_thread = g_malloc0(sizeof(QemuThread));
+    snprintf(thread_name, VCPU_THREAD_NAME_SIZE, "CPU %d/GEN",
+             cpu->cpu_index);
+    qemu_mutex_init(&cpu->tb_req.tb_req_lock);
+    qemu_cond_init(&cpu->tb_req.tb_req_cond_c);
+    qemu_cond_init(&cpu->tb_req.tb_req_cond_p);
+    qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
+                       cpu, QEMU_THREAD_JOINABLE);
 
     while (1) {
         /* Account partial waits to QEMU_CLOCK_VIRTUAL.  */
@@ -1451,6 +1464,7 @@ static void CALLBACK dummy_apc_func(ULONG_PTR unused)
 static void *qemu_tcg_cpu_thread_fn(void *arg)
 {
     CPUState *cpu = arg;
+    char thread_name[VCPU_THREAD_NAME_SIZE];
 
     g_assert(!use_icount);
 
@@ -1468,6 +1482,16 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
 
     /* process any pending work */
     cpu->exit_request = 1;
+
+    /* create tb generate thread. */
+    cpu->tb_thread = g_malloc0(sizeof(QemuThread));
+    snprintf(thread_name, VCPU_THREAD_NAME_SIZE, "CPU %d/GEN",
+             cpu->cpu_index);
+    qemu_mutex_init(&cpu->tb_req.tb_req_lock);
+    qemu_cond_init(&cpu->tb_req.tb_req_cond_c);
+    qemu_cond_init(&cpu->tb_req.tb_req_cond_p);
+    qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
+                       cpu, QEMU_THREAD_JOINABLE);
 
     while (1) {
         if (cpu_can_run(cpu)) {
@@ -1657,9 +1681,6 @@ void cpu_remove_sync(CPUState *cpu)
         qemu_cond_wait(&qemu_cpu_cond, &qemu_global_mutex);
     }
 }
-
-/* For temporary buffers for forming a name */
-#define VCPU_THREAD_NAME_SIZE 16
 
 static void qemu_tcg_init_vcpu(CPUState *cpu)
 {

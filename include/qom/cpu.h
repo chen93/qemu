@@ -330,6 +330,14 @@ struct CPUState {
     int nr_threads;
 
     struct QemuThread *thread;
+    struct QemuThread *tb_thread;
+    struct Tb_Request {
+        QemuMutex tb_req_lock;
+        QemuCond tb_req_cond_c;
+        QemuCond tb_req_cond_p;
+        uint32_t cflags;
+        struct TranslationBlock *tb;
+    } tb_req;
 #ifdef _WIN32
     HANDLE hThread;
 #endif
