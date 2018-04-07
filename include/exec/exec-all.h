@@ -426,8 +426,9 @@ extern uintptr_t tci_tb_ptr;
    is also the case that there are no host isas that contain a call insn
    smaller than 4 bytes, so we don't worry about special-casing this.  */
 #define GETPC_ADJ   2
-void tb_req_lock(CPUState *cpu);
-void tb_req_unlock(CPUState *cpu);
+void tb_req_lock(QemuMutex *req_lock);
+void tb_req_unlock(QemuMutex *req_lock);
+void tb_req_context_init(void);
 
 void tb_lock(void);
 void tb_unlock(void);

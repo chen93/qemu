@@ -389,13 +389,14 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
          * taken outside tb_lock. As system emulation is currently
          * single threaded the locks are NOPs.
          */
-        mmap_lock();
-        tb_lock();
+        //mmap_lock();
+        //tb_lock();
         //acquired_tb_lock = true;
 
         /* There's a chance that our desired tb has been translated while
          * taking the locks so we check again inside the lock.
          */
+        tb_lock();
         tb = tb_htable_lookup(cpu, pc, cs_base, flags, cf_mask);
         tb_unlock();
         if (likely(tb == NULL)) {
@@ -407,7 +408,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 #endif
         }
 
-        mmap_unlock();
+        //mmap_unlock();
         /* We add the TB in the virtual pc hash table for the fast lookup */
         atomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
     }

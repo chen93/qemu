@@ -1344,9 +1344,7 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
     cpu->tb_thread = g_malloc0(sizeof(QemuThread));
     snprintf(thread_name, VCPU_THREAD_NAME_SIZE, "CPU %d/GEN",
              cpu->cpu_index);
-    qemu_mutex_init(&cpu->tb_req.tb_req_lock);
-    qemu_cond_init(&cpu->tb_req.tb_req_cond_c);
-    qemu_cond_init(&cpu->tb_req.tb_req_cond_p);
+    tb_req_context_init();
     qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
                        cpu, QEMU_THREAD_JOINABLE);
 
@@ -1487,9 +1485,7 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
     cpu->tb_thread = g_malloc0(sizeof(QemuThread));
     snprintf(thread_name, VCPU_THREAD_NAME_SIZE, "CPU %d/GEN",
              cpu->cpu_index);
-    qemu_mutex_init(&cpu->tb_req.tb_req_lock);
-    qemu_cond_init(&cpu->tb_req.tb_req_cond_c);
-    qemu_cond_init(&cpu->tb_req.tb_req_cond_p);
+    tb_req_context_init();
     qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
                        cpu, QEMU_THREAD_JOINABLE);
 
