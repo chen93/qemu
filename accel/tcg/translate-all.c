@@ -167,6 +167,7 @@ static struct tb_req_context {
     QemuMutex tb_req_lock;
     QemuCond tb_req_cond_c;
     QemuCond tb_req_cond_p;
+    CPUState *cpu;
     uint32_t has_req;
     uint32_t cflags;
     struct TranslationBlock *tb;
@@ -1438,37 +1439,44 @@ TranslationBlock *tb_req_gen_code(CPUState *cpu, int cflags)
 {
     tb_req_lock(&tb_req.tb_req_lock);
     tb_req.cflags = cflags;
+    tb_req.cpu = cpu;
     tb_req.tb = NULL;
     tb_req.has_req = 1;
     qemu_cond_wait(&tb_req.tb_req_cond_c, &tb_req.tb_req_lock);
     tb_req_unlock(&tb_req.tb_req_lock);
     return tb_req.tb;
 }
+
 static int cnt_tb = 0;
 void *qemu_tb_gen_cpu_thread_fn(void *arg)
 {
-    CPUState *cpu = arg;
-    target_ulong cs_base, pc;
-    uint32_t flags;
-    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
+
     tb_req_lock(&tb_req.tb_req_lock);
     tb_req.has_req = 0;
     tb_req_unlock(&tb_req.tb_req_lock);
 
     while(1) {
+        target_ulong cs_base, pc;
+        uint32_t flags;
+        CPUState *cpu;
+        CPUArchState *env;
+
         tb_req_lock(&tb_req.tb_req_lock);
         while (tb_req.has_req == 0) {
             tb_req_unlock(&tb_req.tb_req_lock);
             usleep(1);
             tb_req_lock(&tb_req.tb_req_lock);
         }
+
+        cpu = tb_req.cpu;
+        env = (CPUArchState *)cpu->env_ptr;
         cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
         mmap_lock();
         tb_lock();
         tb_req.tb = tb_gen_code(cpu, pc, cs_base, flags, tb_req.cflags);
         cnt_tb++;
         if (cnt_tb % 100 == 0)
-            printf("%d\n", cnt_tb);
+            printf("%d pc = 0x%x\n", cnt_tb, pc);
         tb_req.has_req = 0;
         tb_unlock();
         mmap_unlock();
