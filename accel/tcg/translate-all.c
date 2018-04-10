@@ -1311,6 +1311,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->cs_base = cs_base;
     tb->flags = flags;
     tb->cflags = cflags;
+    tb->pc_next = 0;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
     tcg_ctx->tb_cflags = cflags;
 
@@ -1450,6 +1451,10 @@ TranslationBlock *tb_req_gen_code(CPUState *cpu, int cflags)
 static int cnt_tb = 0;
 void *qemu_tb_gen_cpu_thread_fn(void *arg)
 {
+    CPUArchState *last_cpu = NULL;
+    target_ulong last_pc = 0, last_cs_base = 0;
+    uint32_t last_cflags, last_flags;
+    TranslationBlock *tb;
 
     tb_req_lock(&tb_req.tb_req_lock);
     tb_req.has_req = 0;
@@ -1457,31 +1462,60 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
 
     while(1) {
         target_ulong cs_base, pc;
-        uint32_t flags;
+        uint32_t flags, cflags;
         CPUState *cpu;
         CPUArchState *env;
+        uint32_t tb_for_req = 0;
 
         tb_req_lock(&tb_req.tb_req_lock);
-        while (tb_req.has_req == 0) {
+
+        if (tb_req.has_req == 1) {
+            tb_req.has_req = 0;
+            tb_for_req = 1;
+            cpu = tb_req.cpu;
+            cflags = tb_req.cflags;
+            env = (CPUArchState *)cpu->env_ptr;
+            cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
             tb_req_unlock(&tb_req.tb_req_lock);
-            usleep(1);
-            tb_req_lock(&tb_req.tb_req_lock);
+        } else if (last_cpu != NULL) {
+            tb_req_unlock(&tb_req.tb_req_lock);
+            cpu = last_cpu;
+            env = (CPUArchState *)cpu->env_ptr;
+            pc = last_pc;
+            cs_base = last_cs_base;
+            flags = last_flags;
+            cflags = last_cflags;
+        } else {
+            tb_req_unlock(&tb_req.tb_req_lock);
+            usleep(10);
+            continue;
         }
 
-        cpu = tb_req.cpu;
-        env = (CPUArchState *)cpu->env_ptr;
-        cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
         mmap_lock();
         tb_lock();
-        tb_req.tb = tb_gen_code(cpu, pc, cs_base, flags, tb_req.cflags);
+        tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
+        if (tb->pc_next != 0) {
+            last_cpu = cpu;
+            last_pc = tb->pc_next;
+            last_cs_base = cs_base;
+            last_flags = flags;
+            last_cflags = cflags;
+        } else {
+            last_cpu = NULL;
+        }
         cnt_tb++;
         if (cnt_tb % 100 == 0)
             printf("%d pc = 0x%x\n", cnt_tb, pc);
-        tb_req.has_req = 0;
         tb_unlock();
         mmap_unlock();
-        qemu_cond_signal(&tb_req.tb_req_cond_c);
-        tb_req_unlock(&tb_req.tb_req_lock);
+
+        if (tb_for_req == 1) {
+            tb_req_lock(&tb_req.tb_req_lock);
+            tb_for_req = 0;
+            tb_req.tb = tb;
+            qemu_cond_signal(&tb_req.tb_req_cond_c);
+            tb_req_unlock(&tb_req.tb_req_lock);
+        }
     }
 }
 

@@ -384,6 +384,7 @@ struct TranslationBlock {
      */
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_list_first;
+    target_ulong pc_next;
 };
 
 extern bool parallel_cpus;

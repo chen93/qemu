@@ -12451,6 +12451,7 @@ void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb)
 #endif
 
     translator_loop(ops, &dc.base, cpu, tb);
+    tb->pc_next = dc.base.pc_next;
 }
 
 static const char *cpu_mode_names[16] = {
