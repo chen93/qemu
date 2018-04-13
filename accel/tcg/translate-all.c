@@ -59,6 +59,11 @@
 #include "qemu/main-loop.h"
 #include "exec/log.h"
 #include "sysemu/cpus.h"
+#include <execinfo.h>
+
+/* dump call-stack depth */
+#define DUMP_STACK_DEPTH_MAX 16
+
 
 /* #define DEBUG_TB_INVALIDATE */
 /* #define DEBUG_TB_FLUSH */
@@ -168,10 +173,40 @@ static struct tb_req_context {
     QemuCond tb_req_cond_c;
     QemuCond tb_req_cond_p;
     CPUState *cpu;
+
+    struct QemuThread *tb_thread;
+    uint32_t is_tb_gen_code_lock;
     uint32_t has_req;
     uint32_t cflags;
     struct TranslationBlock *tb;
 } tb_req;
+
+#if 0
+/* dump call-stack function  */
+static void dump_trace(void) {
+	void *stack_trace[DUMP_STACK_DEPTH_MAX] = {0};
+	char **stack_strings = NULL;
+	int stack_depth = 0;
+	int i = 0;
+
+	stack_depth = backtrace(stack_trace, DUMP_STACK_DEPTH_MAX);
+
+	stack_strings = (char **)backtrace_symbols(stack_trace, stack_depth);
+	if (NULL == stack_strings) {
+		printf(" Memory is not enough while dump Stack Trace! \r\n");
+		return;
+	}
+	printf("\n Stack Trace: \r\n");
+	for (i = 0; i < stack_depth; ++i) {
+		printf(" [%d] %s \r\n", i, stack_strings[i]);
+	}
+
+	free(stack_strings);
+	stack_strings = NULL;
+
+	return;
+}
+#endif
 
 static void page_table_config_init(void)
 {
@@ -210,19 +245,19 @@ void tb_req_unlock(QemuMutex *req_lock)
     qemu_mutex_unlock(req_lock);
 }
 
-#if 0
 #define assert_tb_locked() tcg_debug_assert(have_tb_lock)
 #define assert_tb_unlocked() tcg_debug_assert(!have_tb_lock)
-#else
-#define assert_tb_locked()      
-#define assert_tb_unlocked()   
-#endif
 
 void tb_lock(void)
 {
-    assert_tb_unlocked();
     qemu_mutex_lock(&tb_ctx.tb_lock);
+    assert_tb_unlocked();
     have_tb_lock++;
+    if (tb_req.tb_thread != NULL && qemu_thread_is_self(tb_req.tb_thread)) {
+        tb_req.is_tb_gen_code_lock = 1;
+    } else {
+        tb_req.is_tb_gen_code_lock = 0;
+    }
 }
 
 void tb_unlock(void)
@@ -235,8 +270,13 @@ void tb_unlock(void)
 void tb_lock_reset(void)
 {
     if (have_tb_lock) {
-        qemu_mutex_unlock(&tb_ctx.tb_lock);
-        have_tb_lock = 0;
+        if (tb_req.is_tb_gen_code_lock) {
+            tb_lock();
+            tb_unlock();
+        } else {
+            qemu_mutex_unlock(&tb_ctx.tb_lock);
+            have_tb_lock = 0;
+        }
     }
 }
 
@@ -1451,14 +1491,18 @@ TranslationBlock *tb_req_gen_code(CPUState *cpu, int cflags)
 static int cnt_tb = 0;
 void *qemu_tb_gen_cpu_thread_fn(void *arg)
 {
-    CPUArchState *last_cpu = NULL;
+    CPUState *last_cpu = NULL;
     target_ulong last_pc = 0, last_cs_base = 0;
     uint32_t last_cflags, last_flags;
     TranslationBlock *tb;
+    int cnt = 0;
 
+    tb_lock();
     tb_req_lock(&tb_req.tb_req_lock);
-    tb_req.has_req = 0;
+    tb_req.tb_thread = ((CPUState *)arg)->tb_thread;
+    tb_req.is_tb_gen_code_lock = 1;
     tb_req_unlock(&tb_req.tb_req_lock);
+    tb_unlock();
 
     while(1) {
         target_ulong cs_base, pc;
@@ -1472,12 +1516,13 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
         if (tb_req.has_req == 1) {
             tb_req.has_req = 0;
             tb_for_req = 1;
+            cnt = 0;
             cpu = tb_req.cpu;
             cflags = tb_req.cflags;
             env = (CPUArchState *)cpu->env_ptr;
             cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
             tb_req_unlock(&tb_req.tb_req_lock);
-        } else if (last_cpu != NULL) {
+        } else if (last_cpu != NULL && cnt < 5) {
             tb_req_unlock(&tb_req.tb_req_lock);
             cpu = last_cpu;
             env = (CPUArchState *)cpu->env_ptr;
@@ -1485,6 +1530,7 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             cs_base = last_cs_base;
             flags = last_flags;
             cflags = last_cflags;
+            cnt++;
         } else {
             tb_req_unlock(&tb_req.tb_req_lock);
             usleep(10);
@@ -1504,7 +1550,7 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             last_cpu = NULL;
         }
         cnt_tb++;
-        if (cnt_tb % 100 == 0)
+        if (cnt_tb % 1000 == 0)
             printf("%d pc = 0x%x\n", cnt_tb, pc);
         tb_unlock();
         mmap_unlock();

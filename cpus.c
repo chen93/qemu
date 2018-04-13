@@ -1346,7 +1346,7 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
              cpu->cpu_index);
     tb_req_context_init();
     qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
-                       NULL, QEMU_THREAD_JOINABLE);
+                       cpu, QEMU_THREAD_JOINABLE);
 
     while (1) {
         /* Account partial waits to QEMU_CLOCK_VIRTUAL.  */
@@ -1487,7 +1487,7 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
              cpu->cpu_index);
     tb_req_context_init();
     qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
-                       NULL, QEMU_THREAD_JOINABLE);
+                       cpu, QEMU_THREAD_JOINABLE);
 
     while (1) {
         if (cpu_can_run(cpu)) {
