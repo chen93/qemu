@@ -12284,6 +12284,8 @@ static void thumb_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     }
 }
 
+static target_ulong next_tb_pc;
+
 static void arm_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
@@ -12322,6 +12324,7 @@ static void arm_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
             break;
         case DISAS_NEXT:
         case DISAS_TOO_MANY:
+            //next_tb_pc = dc->pc;
         case DISAS_UPDATE:
             gen_set_pc_im(dc, dc->pc);
             /* fall through */
@@ -12345,9 +12348,11 @@ static void arm_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
         case DISAS_NEXT:
         case DISAS_TOO_MANY:
             gen_goto_tb(dc, 1, dc->pc);
+            next_tb_pc = dc->pc;
             break;
         case DISAS_JUMP:
             gen_goto_ptr();
+            //next_tb_pc = dc->pc;
             break;
         case DISAS_UPDATE:
             gen_set_pc_im(dc, dc->pc);
@@ -12449,9 +12454,9 @@ void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb)
         ops = &aarch64_translator_ops;
     }
 #endif
-
+    next_tb_pc = 0;
     translator_loop(ops, &dc.base, cpu, tb);
-    tb->pc_next = dc.base.pc_next;
+    tb->pc_next = next_tb_pc;
 }
 
 static const char *cpu_mode_names[16] = {

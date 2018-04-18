@@ -175,7 +175,6 @@ static struct tb_req_context {
     CPUState *cpu;
 
     struct QemuThread *tb_thread;
-    uint32_t is_tb_gen_code_lock;
     uint32_t has_req;
     uint32_t cflags;
     struct TranslationBlock *tb;
@@ -247,17 +246,14 @@ void tb_req_unlock(QemuMutex *req_lock)
 
 #define assert_tb_locked() tcg_debug_assert(have_tb_lock)
 #define assert_tb_unlocked() tcg_debug_assert(!have_tb_lock)
+QemuThread locked_thread;
 
 void tb_lock(void)
 {
     qemu_mutex_lock(&tb_ctx.tb_lock);
     assert_tb_unlocked();
     have_tb_lock++;
-    if (tb_req.tb_thread != NULL && qemu_thread_is_self(tb_req.tb_thread)) {
-        tb_req.is_tb_gen_code_lock = 1;
-    } else {
-        tb_req.is_tb_gen_code_lock = 0;
-    }
+    qemu_thread_get_self(&locked_thread);
 }
 
 void tb_unlock(void)
@@ -270,12 +266,12 @@ void tb_unlock(void)
 void tb_lock_reset(void)
 {
     if (have_tb_lock) {
-        if (tb_req.is_tb_gen_code_lock) {
-            tb_lock();
-            tb_unlock();
-        } else {
+        if (qemu_thread_is_self(&locked_thread)) {
             qemu_mutex_unlock(&tb_ctx.tb_lock);
             have_tb_lock = 0;
+        } else {
+            tb_lock();
+            tb_unlock();
         }
     }
 }
@@ -1488,7 +1484,6 @@ TranslationBlock *tb_req_gen_code(CPUState *cpu, int cflags)
     return tb_req.tb;
 }
 
-static int cnt_tb = 0;
 void *qemu_tb_gen_cpu_thread_fn(void *arg)
 {
     CPUState *last_cpu = NULL;
@@ -1496,13 +1491,13 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
     uint32_t last_cflags, last_flags;
     TranslationBlock *tb;
     int cnt = 0;
-
-    tb_lock();
+    rcu_read_lock();
+#if 0
     tb_req_lock(&tb_req.tb_req_lock);
     tb_req.tb_thread = ((CPUState *)arg)->tb_thread;
     tb_req.is_tb_gen_code_lock = 1;
     tb_req_unlock(&tb_req.tb_req_lock);
-    tb_unlock();
+#endif
 
     while(1) {
         target_ulong cs_base, pc;
@@ -1522,7 +1517,7 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             env = (CPUArchState *)cpu->env_ptr;
             cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
             tb_req_unlock(&tb_req.tb_req_lock);
-        } else if (last_cpu != NULL && cnt < 5) {
+        } else if (last_cpu != NULL && cnt < 1) {
             tb_req_unlock(&tb_req.tb_req_lock);
             cpu = last_cpu;
             env = (CPUArchState *)cpu->env_ptr;
@@ -1540,6 +1535,8 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
         mmap_lock();
         tb_lock();
         tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
+        mmap_unlock();
+        tb_unlock();
         if (tb->pc_next != 0) {
             last_cpu = cpu;
             last_pc = tb->pc_next;
@@ -1549,11 +1546,6 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
         } else {
             last_cpu = NULL;
         }
-        cnt_tb++;
-        if (cnt_tb % 1000 == 0)
-            printf("%d pc = 0x%x\n", cnt_tb, pc);
-        tb_unlock();
-        mmap_unlock();
 
         if (tb_for_req == 1) {
             tb_req_lock(&tb_req.tb_req_lock);
@@ -1563,6 +1555,7 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             tb_req_unlock(&tb_req.tb_req_lock);
         }
     }
+    rcu_read_unlock();
 }
 
 /*
