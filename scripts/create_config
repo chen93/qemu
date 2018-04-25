@@ -24,6 +24,10 @@ case $line in
     # save for the next definitions
     eval "$name=\$define_value"
     ;;
+ CSKY_VERSION=*) # configuration
+    cskyversion=${line#*=}
+    echo "#define QEMU_CSKY_VERSION \"$cskyversion\""
+    ;;
  prefix=*)
     # save for the next definitions
     prefix=${line#*=}

@@ -174,5 +174,9 @@ const char *path(const char *name)
     if (!base || !name || name[0] != '/')
         return name;
 
+    if (!strcmp(name, "/etc/ld.so.cache")) {
+        return base->pathname;
+    }
+
     return follow_path(base, name) ?: name;
 }

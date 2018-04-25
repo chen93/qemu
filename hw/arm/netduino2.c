@@ -36,8 +36,14 @@ static void netduino2_init(MachineState *machine)
     if (machine->kernel_filename) {
         qdev_prop_set_string(dev, "kernel-filename", machine->kernel_filename);
     }
-    qdev_prop_set_string(dev, "cpu-model", "cortex-m3");
+    if (machine->cpu_model) {
+        qdev_prop_set_string(dev, "cpu-model", machine->cpu_model);
+    } else {
+        qdev_prop_set_string(dev, "cpu-model", "cortex-m4");
+    }
     object_property_set_bool(OBJECT(dev), true, "realized", &error_fatal);
+
+    sysbus_create_simple("csky_exit", 0x10002000, NULL);
 }
 
 static void netduino2_machine_init(MachineClass *mc)

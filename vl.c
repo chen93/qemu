@@ -124,6 +124,10 @@ int main(int argc, char **argv)
 #include "qapi/qmp/qerror.h"
 #include "sysemu/iothread.h"
 
+#ifdef CONFIG_MODULES
+#include "hw/csky/dynsoc.h"
+#endif
+
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
 
@@ -293,6 +297,43 @@ static QemuOptsList qemu_machine_opts = {
          * when setting machine properties
          */
         { }
+    },
+};
+
+static QemuOptsList qemu_cpu_prop_opts = {
+    .name = "cpu-prop",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_cpu_prop_opts.head),
+    .desc = {
+        {
+            .name = "vdsp",
+            .type = QEMU_OPT_NUMBER,
+            .help = "choose vdsp as 64 or 128",
+        },{
+            .name = "pctrace",
+            .type = QEMU_OPT_NUMBER,
+            .help = "number of pctrace records",
+        },{
+            .name = "elrw",
+            .type = QEMU_OPT_BOOL,
+            .help = "cpu use elrw or not",
+        },{
+            .name = "mem_prot",
+            .type = QEMU_OPT_STRING,
+            .help = "indicate memory protect, mmu/mgu/no",
+        },{
+            .name = "mmu_default",
+            .type = QEMU_OPT_BOOL,
+            .help = "MMU on or not before load kernel",
+        },{
+            .name = "tb_trace",
+            .type = QEMU_OPT_BOOL,
+            .help = "beginning of translation block's PC",
+        },{
+            .name = "unaligned_access",
+            .type = QEMU_OPT_BOOL,
+            .help = "cpu support unaligned data access",
+        },
+        { /* end of list */ }
     },
 };
 
@@ -3059,6 +3100,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_trace_opts);
     qemu_add_opts(&qemu_option_rom_opts);
     qemu_add_opts(&qemu_machine_opts);
+    qemu_add_opts(&qemu_cpu_prop_opts);
     qemu_add_opts(&qemu_mem_opts);
     qemu_add_opts(&qemu_smp_opts);
     qemu_add_opts(&qemu_boot_opts);
@@ -3153,6 +3195,21 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_cpu:
                 /* hw initialization will check this */
                 cpu_model = optarg;
+                break;
+            case QEMU_OPTION_cpu_prop:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("cpu-prop"),
+                                               optarg, false);
+                if (!opts) {
+                    exit(1);
+                }
+                break;
+            case QEMU_OPTION_soc:
+#ifdef CONFIG_MODULES
+                dynsoc_load_modules();
+#else
+                error_report("dynsoc load support is disabled");
+                exit(1);
+#endif
                 break;
             case QEMU_OPTION_hda:
                 {

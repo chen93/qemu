@@ -38,6 +38,11 @@ static void raise_exception(CPUARMState *env, uint32_t excp,
     cpu_loop_exit(cs);
 }
 
+void helper_tb_trace(CPUARMState *env, uint32_t tb_pc)
+{
+    qemu_log_mask(CPU_TB_TRACE, "0x%.8x\n", tb_pc);
+}
+
 static int exception_target_el(CPUARMState *env)
 {
     int target_el = MAX(1, arm_current_el(env));

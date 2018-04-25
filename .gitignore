@@ -109,9 +109,11 @@
 /pc-bios/optionrom/kvmvapic.img
 /pc-bios/s390-ccw/s390-ccw.elf
 /pc-bios/s390-ccw/s390-ccw.img
+/tests/csky/ck803s-dsp/case/*.elf
 .stgit-*
 cscope.*
 tags
 TAGS
 docker-src.*
 *~
+/build

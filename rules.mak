@@ -87,6 +87,9 @@ LINK = $(call quiet-command, $(LINKPROG) $(QEMU_CFLAGS) $(CFLAGS) $(LDFLAGS) -o 
 DSO_OBJ_CFLAGS := -fPIC -DBUILD_DSO
 module-common.o: CFLAGS += $(DSO_OBJ_CFLAGS)
 %$(DSOSUF): LDFLAGS += $(LDFLAGS_SHARED)
+ifdef CONFIG_WIN32
+%$(DSOSUF): LIBS += -L. -lqemu_sym
+endif
 %$(DSOSUF): %.mo
 	$(call LINK,$^)
 	@# Copy to build root so modules can be loaded when program started without install
@@ -101,6 +104,9 @@ LD_REL := $(CC) -nostdlib $(LD_REL_FLAGS)
 .PHONY: modules
 modules:
 
+ifdef CONFIG_WIN32
+%$(EXESUF): LDFLAGS += -Wl,--export-all-symbols,--out-implib,../libqemu_sym.a
+endif
 %$(EXESUF): %.o
 	$(call LINK,$(filter %.o %.a %.mo, $^))
 

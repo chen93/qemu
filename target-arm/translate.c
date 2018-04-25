@@ -11588,6 +11588,26 @@ static bool insn_crosses_page(CPUARMState *env, DisasContext *s)
     return false;
 }
 
+static void csky_tb_start(CPUARMState *env, TranslationBlock *tb)
+{
+    uint32_t tb_pc = (uint32_t)tb->pc;
+    TCGv t0 = tcg_temp_new();
+
+    t0 = tcg_const_tl(tb_pc);
+    gen_helper_tb_trace(cpu_env, t0);
+    tcg_temp_free(t0);
+}
+
+static void csky_dump_tb_map(CPUARMState *env, TranslationBlock *tb)
+{
+    uint32_t tb_pc = (uint32_t)tb->pc;
+    uint32_t tb_end =  tb_pc + (uint32_t)tb->size;
+    uint32_t icount = (uint32_t)tb->icount;
+
+    qemu_log_mask(CPU_TB_TRACE, "tb_map: 0x%.8x 0x%.8x %d\n",
+                  tb_pc, tb_end, icount);
+}
+
 /* generate intermediate code for basic block 'tb'.  */
 void gen_intermediate_code(CPUARMState *env, TranslationBlock *tb)
 {
@@ -11683,6 +11703,8 @@ void gen_intermediate_code(CPUARMState *env, TranslationBlock *tb)
     }
 
     gen_tb_start(tb);
+
+    csky_tb_start(env, tb);
 
     tcg_clear_temp_count();
 
@@ -11974,6 +11996,7 @@ done_generating:
 #endif
     tb->size = dc->pc - pc_start;
     tb->icount = num_insns;
+    csky_dump_tb_map(env, tb);
 }
 
 static const char *cpu_mode_names[16] = {

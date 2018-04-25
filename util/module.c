@@ -162,7 +162,7 @@ void module_load_one(const char *prefix, const char *lib_name)
 #ifdef CONFIG_MODULES
     char *fname = NULL;
     char *exec_dir;
-    char *dirs[3];
+    char *dirs[5];
     char *module_name;
     int i = 0;
     int ret;
@@ -189,13 +189,20 @@ void module_load_one(const char *prefix, const char *lib_name)
     dirs[i++] = g_strdup_printf("%s", CONFIG_QEMU_MODDIR);
     dirs[i++] = g_strdup_printf("%s/..", exec_dir ? : "");
     dirs[i++] = g_strdup_printf("%s", exec_dir ? : "");
+    dirs[i++] = g_strdup_printf("%s/../lib/qemu", exec_dir ? : "");
+    dirs[i++] = g_strdup_printf("%s/lib", exec_dir ? : "");
     assert(i == ARRAY_SIZE(dirs));
     g_free(exec_dir);
     exec_dir = NULL;
 
     for (i = 0; i < ARRAY_SIZE(dirs); i++) {
+#ifdef _WIN32
+        fname = g_strdup_printf("%s\\%s%s",
+                dirs[i], module_name, HOST_DSOSUF);
+#else
         fname = g_strdup_printf("%s/%s%s",
                 dirs[i], module_name, HOST_DSOSUF);
+#endif
         ret = module_load_file(fname);
         g_free(fname);
         fname = NULL;

@@ -180,6 +180,7 @@ dummy := $(call unnest-vars,.., \
                crypto-aes-obj-y \
                qom-obj-y \
                io-obj-y \
+               obj-m \
                common-obj-y \
                common-obj-m)
 target-obj-y := $(target-obj-y-save)

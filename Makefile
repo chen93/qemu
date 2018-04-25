@@ -157,6 +157,7 @@ dummy := $(call unnest-vars,, \
                 qom-obj-y \
                 io-obj-y \
                 common-obj-y \
+                obj-m \
                 common-obj-m)
 
 ifneq ($(wildcard config-host.mak),)

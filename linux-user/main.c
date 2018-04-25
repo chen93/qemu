@@ -71,6 +71,8 @@ do {                                                                    \
 # ifdef TARGET_MIPS
 /* MIPS only supports 31 bits of virtual address space for user space */
 unsigned long reserved_va = 0x77000000;
+# elif TARGET_CSKY
+unsigned long reserved_va = 0x40000000;
 # else
 unsigned long reserved_va = 0xf7000000;
 # endif
@@ -366,6 +368,149 @@ void cpu_loop(CPUX86State *env)
         process_pending_signals(env);
     }
 }
+#endif
+
+#ifdef TARGET_CSKY
+
+void cpu_loop(CPUCSKYState *env)
+{
+    CPUState *cs = CPU(csky_env_get_cpu(env));
+    int trapnr;
+    int *host_ptr;
+    target_siginfo_t info;
+    abi_ulong pc;
+
+    for (;;)
+    {
+        cpu_exec_start(cs);
+        trapnr = cpu_exec(cs);
+        cpu_exec_end(cs);
+        process_queued_cpu_work(cs);
+
+        switch (trapnr)
+        {
+        case EXCP_INTERRUPT:
+            /* just indicate that signals should be handled asap */
+            break;
+        case EXCP_DEBUG:
+            {
+                int sig;
+
+                sig = gdb_handlesig(cs, TARGET_SIGTRAP);
+                if (sig)
+                {
+                    info.si_signo = sig;
+                    info.si_errno = 0;
+                    info.si_code = TARGET_TRAP_BRKPT;
+                    queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+                }
+            }
+            break;
+        case EXCP_CSKY_TRAP0:
+            /*FIXME implement tls*/
+#if defined (TARGET_CSKYV1)
+            env->pc += 2;
+            /*CLONE_SETTLS=0x8000 */
+#if defined(CONFIG_CSKY_KERNEL_4X)
+           if((env->regs[1] == 220) && (env->regs[2] & 0x8000)){
+                cpu_set_tls(env, env->regs[6]);
+            }
+            if(env->regs[1] == 244){
+                cpu_set_tls(env, env->regs[2]);
+                break;
+            }
+#else
+           if((env->regs[1] == 120) && (env->regs[2] & 0x8000)){
+                cpu_set_tls(env, env->regs[6]);
+            }
+            if(env->regs[1] == 218){
+                cpu_set_tls(env, env->regs[2]);
+                break;
+            }
+#endif
+            env->regs[2] = do_syscall(env, env->regs[1],
+                                      env->regs[2], env->regs[3], env->regs[4],
+                                      env->regs[5], env->regs[6], env->regs[7],
+                                      0, 0);
+#else
+            env->pc += 4;
+            /*two ways to set tls*/
+#if defined(CONFIG_CSKY_KERNEL_4X)
+            if((env->regs[7] == 220) && (env->regs[0] & 0x8000)){
+                cpu_set_tls(env, env->regs[4]);
+            }
+            if(env->regs[7] == 244){
+                cpu_set_tls(env, env->regs[0]);
+                break;
+            }
+#else
+            if((env->regs[7] == 120) && (env->regs[0] & 0x8000)){
+                cpu_set_tls(env, env->regs[4]);
+            }
+            if(env->regs[7] == 218){
+                cpu_set_tls(env, env->regs[0]);
+                break;
+            }
+#endif
+            env->regs[0] = do_syscall(env, env->regs[7],
+                                      env->regs[0], env->regs[1], env->regs[2],
+                                      env->regs[3], env->regs[4], env->regs[5],
+                                      0, 0);
+#endif
+            break;
+        case EXCP_CSKY_TRAP2:
+#if defined(TARGET_CSKYV1)
+            env->pc += 2;
+            host_ptr = g2h(env->regs[4]);
+            if(tswap32(env->regs[2]) != *host_ptr)
+                env->regs[2] = 1;
+            else{
+                *host_ptr = tswap32(env->regs[3]);
+                env->regs[2] = 0;
+            }
+#elif defined(TARGET_CSKYV2)
+            env->pc += 4;
+            host_ptr = g2h(env->regs[2]);
+            if(tswap32(env->regs[0]) != *host_ptr)
+                env->regs[0] = 1;
+            else{
+                *host_ptr = tswap32(env->regs[1]);
+                env->regs[0] = 0;
+            }
+#endif
+            break;
+        case EXCP_CSKY_TRAP3:
+#if defined(TARGET_CSKYV1)
+            env->pc += 2;
+            env->regs[2] = env->tls_value;
+            break;
+#elif  defined(TARGET_CSKYV2)
+            fprintf(stderr, "Dont need to implemente trap3 in cskyv2\n");
+            break;
+#endif
+        case EXCP_CSKY_DIV:
+            {
+                info.si_signo = SIGFPE;
+                info.si_errno = 0;
+                info.si_code = TARGET_FPE_INTDIV;
+                queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+            }
+            break;
+        case EXCP_CSKY_DATA_ABORT:      /* fall through */
+        case EXCP_CSKY_UDEF:            /* fall through */
+        case EXCP_CSKY_PRIVILEGE:       /* fall through */
+        case EXCP_CSKY_BKPT:            /* fall through */
+        default:
+            pc = env->pc;
+            fprintf(stderr, "qemu: 0x%08x: unhandled CPU exception 0x%x - aborting\n",
+                    pc, trapnr);
+            /* TODO: call cpu_dump_state */
+            abort();
+        }
+        process_pending_signals(env);
+    }
+}
+
 #endif
 
 #ifdef TARGET_ARM
@@ -2638,7 +2783,7 @@ void cpu_loop(CPUCRISState *env)
     CPUState *cs = CPU(cris_env_get_cpu(env));
     int trapnr, ret;
     target_siginfo_t info;
-    
+
     while (1) {
         cpu_exec_start(cs);
         trapnr = cpu_exec(cs);
@@ -2660,13 +2805,13 @@ void cpu_loop(CPUCRISState *env)
 	  /* just indicate that signals should be handled asap */
 	  break;
         case EXCP_BREAK:
-            ret = do_syscall(env, 
-                             env->regs[9], 
-                             env->regs[10], 
-                             env->regs[11], 
-                             env->regs[12], 
-                             env->regs[13], 
-                             env->pregs[7], 
+            ret = do_syscall(env,
+                             env->regs[9],
+                             env->regs[10],
+                             env->regs[11],
+                             env->regs[12],
+                             env->regs[13],
+                             env->pregs[7],
                              env->pregs[11],
                              0, 0);
             if (ret == -TARGET_ERESTARTSYS) {
@@ -2708,7 +2853,7 @@ void cpu_loop(CPUMBState *env)
     CPUState *cs = CPU(mb_env_get_cpu(env));
     int trapnr, ret;
     target_siginfo_t info;
-    
+
     while (1) {
         cpu_exec_start(cs);
         trapnr = cpu_exec(cs);
@@ -2733,13 +2878,13 @@ void cpu_loop(CPUMBState *env)
             /* Return address is 4 bytes after the call.  */
             env->regs[14] += 4;
             env->sregs[SR_PC] = env->regs[14];
-            ret = do_syscall(env, 
-                             env->regs[12], 
-                             env->regs[5], 
-                             env->regs[6], 
-                             env->regs[7], 
-                             env->regs[8], 
-                             env->regs[9], 
+            ret = do_syscall(env,
+                             env->regs[12],
+                             env->regs[5],
+                             env->regs[6],
+                             env->regs[7],
+                             env->regs[8],
+                             env->regs[9],
                              env->regs[10],
                              0, 0);
             if (ret == -TARGET_ERESTARTSYS) {
@@ -3635,6 +3780,18 @@ static void handle_arg_stack_size(const char *arg)
     }
 }
 
+static int jcount_start;
+static int jcount_end;
+static void handle_jcount_start(const char *arg)
+{
+    jcount_start = strtoul(arg, NULL, 16);
+}
+
+static void handle_jcount_end(const char *arg)
+{
+    jcount_end = strtoul(arg, NULL, 16);
+}
+
 static void handle_arg_ld_prefix(const char *arg)
 {
     interp_prefix = strdup(arg);
@@ -3735,6 +3892,12 @@ static void handle_arg_strace(const char *arg)
     do_strace = 1;
 }
 
+static int do_tb_trace;
+static void handle_arg_tb_trace(const char *arg)
+{
+    do_tb_trace = 1;
+}
+
 static void handle_arg_version(const char *arg)
 {
     printf("qemu-" TARGET_NAME " version " QEMU_VERSION QEMU_PKGVERSION
@@ -3794,6 +3957,12 @@ static const struct qemu_argument arg_table[] = {
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
      "",           "log system calls"},
+    {"tb_trace",   "QEMU_TB_TRACE",    false, handle_arg_tb_trace,
+     "",           "log all tb trace"},
+    {"jcount_start", "QEMU_JCOUNT_START", true, handle_jcount_start,
+     "addr",       "set the start addr for jcount"},
+    {"jcount_end", "QEMU_JCOUNT_END",     true, handle_jcount_end,
+     "addr",       "set the end addr for jcount"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_randseed,
      "",           "Seed for pseudo-random number generator"},
     {"trace",      "QEMU_TRACE",       true,  handle_arg_trace,
@@ -4020,6 +4189,10 @@ int main(int argc, char **argv, char **envp)
 #endif
 #elif defined(TARGET_ARM)
         cpu_model = "any";
+#elif defined(TARGET_CSKYV1)
+        cpu_model = "ck610ef";
+#elif defined(TARGET_CSKYV2)
+        cpu_model = "ck810f";
 #elif defined(TARGET_UNICORE32)
         cpu_model = "any";
 #elif defined(TARGET_M68K)
@@ -4069,6 +4242,23 @@ int main(int argc, char **argv, char **envp)
         do_strace = 1;
     }
 
+    if (getenv("QEMU_TB_TRACE")) {
+        do_tb_trace = 1;
+    }
+
+#ifdef TARGET_CSKY
+    if (do_tb_trace == 1) {
+        env->tb_trace = 1;
+    }
+
+    if (jcount_start != 0) {
+        env->jcount_start = jcount_start;
+        env->jcount_end = jcount_end;
+    } else {
+        env->jcount_start = 0;
+        env->jcount_end = 0;
+    }
+#endif
     if (getenv("QEMU_RAND_SEED")) {
         handle_arg_randseed(getenv("QEMU_RAND_SEED"));
     }
@@ -4309,6 +4499,48 @@ int main(int argc, char **argv, char **envp)
     cpu_x86_load_seg(env, R_FS, 0);
     cpu_x86_load_seg(env, R_GS, 0);
 #endif
+#elif defined(TARGET_CSKY)
+    {
+        env->regs[0] = regs->r0;
+        env->regs[1] = regs->r1;
+        env->regs[2] = regs->r2;
+        env->regs[3] = regs->r3;
+        env->regs[4] = regs->r4;
+        env->regs[5] = regs->r5;
+        env->regs[6] = regs->r6;
+        env->regs[7] = regs->r7;
+        env->regs[8] = regs->r8;
+        env->regs[9] = regs->r9;
+        env->regs[10] = regs->r10;
+        env->regs[11] = regs->r11;
+        env->regs[12] = regs->r12;
+        env->regs[13] = regs->r13;
+        env->regs[14] = regs->r14;
+        env->regs[15] = regs->r15;
+#if defined (TARGET_CSKYV2)
+        env->regs[16] = regs->r16;
+        env->regs[17] = regs->r17;
+        env->regs[18] = regs->r18;
+        env->regs[19] = regs->r19;
+        env->regs[20] = regs->r20;
+        env->regs[21] = regs->r21;
+        env->regs[22] = regs->r22;
+        env->regs[23] = regs->r23;
+        env->regs[24] = regs->r24;
+        env->regs[25] = regs->r25;
+        env->regs[26] = regs->r26;
+        env->regs[27] = regs->r27;
+        env->regs[28] = regs->r28;
+        env->regs[29] = regs->r29;
+        env->regs[30] = regs->r30;
+        env->regs[31] = regs->r31;
+#endif
+        env->pc = regs->pc;
+        env->cp0.psr = regs->sr;
+        env->psr_c = 0;
+        env->psr_s = 0;
+        env->dcsr_v = 0;
+    }
 #elif defined(TARGET_AARCH64)
     {
         int i;
@@ -4419,23 +4651,23 @@ int main(int argc, char **argv, char **envp)
         env->regs[12] = regs->r12;
         env->regs[13] = regs->r13;
         env->regs[14] = regs->r14;
-        env->regs[15] = regs->r15;	    
-        env->regs[16] = regs->r16;	    
-        env->regs[17] = regs->r17;	    
-        env->regs[18] = regs->r18;	    
-        env->regs[19] = regs->r19;	    
-        env->regs[20] = regs->r20;	    
-        env->regs[21] = regs->r21;	    
-        env->regs[22] = regs->r22;	    
-        env->regs[23] = regs->r23;	    
-        env->regs[24] = regs->r24;	    
-        env->regs[25] = regs->r25;	    
-        env->regs[26] = regs->r26;	    
-        env->regs[27] = regs->r27;	    
-        env->regs[28] = regs->r28;	    
-        env->regs[29] = regs->r29;	    
-        env->regs[30] = regs->r30;	    
-        env->regs[31] = regs->r31;	    
+        env->regs[15] = regs->r15;
+        env->regs[16] = regs->r16;
+        env->regs[17] = regs->r17;
+        env->regs[18] = regs->r18;
+        env->regs[19] = regs->r19;
+        env->regs[20] = regs->r20;
+        env->regs[21] = regs->r21;
+        env->regs[22] = regs->r22;
+        env->regs[23] = regs->r23;
+        env->regs[24] = regs->r24;
+        env->regs[25] = regs->r25;
+        env->regs[26] = regs->r26;
+        env->regs[27] = regs->r27;
+        env->regs[28] = regs->r28;
+        env->regs[29] = regs->r29;
+        env->regs[30] = regs->r30;
+        env->regs[31] = regs->r31;
         env->sregs[SR_PC] = regs->pc;
     }
 #elif defined(TARGET_MIPS)
@@ -4511,7 +4743,7 @@ int main(int argc, char **argv, char **envp)
 	    env->regs[12] = regs->r12;
 	    env->regs[13] = regs->r13;
 	    env->regs[14] = info->start_stack;
-	    env->regs[15] = regs->acr;	    
+	    env->regs[15] = regs->acr;
 	    env->pc = regs->erp;
     }
 #elif defined(TARGET_S390X)

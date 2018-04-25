@@ -322,6 +322,8 @@ numa=""
 tcmalloc="no"
 jemalloc="no"
 replication="yes"
+csky_dynsoc="no"
+csky_osver=""
 
 # parse CC options first
 for opt do
@@ -346,6 +348,8 @@ for opt do
   --enable-debug-info) debug_info="yes"
   ;;
   --disable-debug-info) debug_info="no"
+  ;;
+  --enable-dynsoc) csky_dynsoc="yes"
   ;;
   esac
 done
@@ -399,6 +403,10 @@ QEMU_CFLAGS="-Wall -Wundef -Wwrite-strings -Wmissing-prototypes $QEMU_CFLAGS"
 QEMU_CFLAGS="-Wstrict-prototypes -Wredundant-decls $QEMU_CFLAGS"
 QEMU_CFLAGS="-D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE $QEMU_CFLAGS"
 QEMU_INCLUDES="-I. -I\$(SRC_PATH) -I\$(SRC_PATH)/include"
+if test "$csky_dynsoc" = "yes"; then
+    QEMU_CFLAGS="-I./\$(TARGET_DIRS)/ $QEMU_CFLAGS"
+fi
+
 if test "$debug_info" = "yes"; then
     CFLAGS="-g $CFLAGS"
     LDFLAGS="-g $LDFLAGS"
@@ -528,6 +536,12 @@ case "$cpu" in
   x86_64|amd64)
     cpu="x86_64"
   ;;
+  cskyv1)
+    cpu="cskyv1"
+  ;;
+  cskyv2)
+    cpu="cskyv2"
+  ;;
   armv*b|armv*l|arm)
     cpu="arm"
   ;;
@@ -545,6 +559,7 @@ case "$cpu" in
     ARCH=unknown
   ;;
 esac
+
 if test -z "$ARCH"; then
   ARCH="$cpu"
 fi
@@ -673,7 +688,11 @@ Haiku)
   LIBS="-lposix_error_mapper -lnetwork $LIBS"
 ;;
 *)
-  audio_drv_list="oss"
+  if [ "$cpu" = "cskyv1" -o "$cpu" = "cskyv2" ] ; then
+    audio_drv_list="alsa"
+  else
+    audio_drv_list="oss"
+  fi
   audio_possible_drivers="oss alsa sdl pa"
   linux="yes"
   linux_user="yes"
@@ -771,6 +790,8 @@ for opt do
   --enable-debug-info)
   ;;
   --disable-debug-info)
+  ;;
+  --enable-dynsoc)
   ;;
   --enable-modules)
       modules="yes"
@@ -1168,6 +1189,8 @@ for opt do
   --disable-replication) replication="no"
   ;;
   --enable-replication) replication="yes"
+  ;;
+  --osver=*) csky_osver="$optarg"
   ;;
   *)
       echo "ERROR: unknown option $opt"
@@ -2575,6 +2598,10 @@ EOF
     sdl_libs=$($sdlconfig --static-libs 2>/dev/null)
   else
     sdl_libs=$($sdlconfig --libs 2>/dev/null)
+  fi
+  if test "$mingw32" = "yes" ; then
+    sdl_libs="-lmingw32 -lSDLmain -lSDL -lmingw32 -lSDLmain -lSDL -liconv -lm -luser32 -lgdi32 -lwinmm -ldxguid"
+    echo $sdl_libs
   fi
   if compile_prog "$sdl_cflags" "$sdl_libs" ; then
     if test $(echo $sdlversion | sed 's/[^0-9]//g') -lt 121 ; then
@@ -5164,7 +5191,7 @@ if test "$mingw32" = "yes" ; then
     echo "CONFIG_QGA_NTDDDISK=y" >> $config_host_mak
   fi
   if test "$guest_agent_msi" = "yes"; then
-    echo "QEMU_GA_MSI_ENABLED=yes" >> $config_host_mak  
+    echo "QEMU_GA_MSI_ENABLED=yes" >> $config_host_mak
     echo "QEMU_GA_MSI_MINGW_DLL_PATH=${QEMU_GA_MSI_MINGW_DLL_PATH}" >> $config_host_mak
     echo "QEMU_GA_MSI_WITH_VSS=${QEMU_GA_MSI_WITH_VSS}" >> $config_host_mak
     echo "QEMU_GA_MSI_ARCH=${QEMU_GA_MSI_ARCH}" >> $config_host_mak
@@ -5262,7 +5289,11 @@ fi
 if test "$modules" = "yes"; then
   # $shacmd can generate a hash started with digit, which the compiler doesn't
   # like as an symbol. So prefix it with an underscore
-  echo "CONFIG_STAMP=_$( (echo $qemu_version; echo $pkgversion; cat $0) | $shacmd - | cut -f1 -d\ )" >> $config_host_mak
+  if test "$csky_dynsoc" = "yes"; then
+    echo "CONFIG_STAMP=y" >> $config_host_mak
+  else
+    echo "CONFIG_STAMP=_$( (echo $qemu_version; echo $pkgversion; cat $0) | $shacmd - | cut -f1 -d\ )" >> $config_host_mak
+  fi
   echo "CONFIG_MODULES=y" >> $config_host_mak
 fi
 if test "$sdl" = "yes" ; then
@@ -5830,7 +5861,7 @@ target_name=$(echo $target | cut -d '-' -f 1)
 target_bigendian="no"
 
 case "$target_name" in
-  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|moxie|or32|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb)
+  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|moxie|or32|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb|cskyv1eb|cskyv2eb)
   target_bigendian=yes
   ;;
 esac
@@ -5890,6 +5921,24 @@ case "$target_name" in
     TARGET_BASE_ARCH=arm
     bflt="yes"
     gdb_xml_files="aarch64-core.xml aarch64-fpu.xml arm-core.xml arm-vfp.xml arm-vfp3.xml arm-neon.xml"
+  ;;
+  cskyv1|cskyv1eb)
+    TARGET_ARCH=cskyv1
+    TARGET_BASE_ARCH=csky
+    TARGET_ABI_DIR=csky
+    bflt="yes"
+    echo "TARGET_CSKYV1=y" >> $config_target_mak
+    cskyversion="CSKY QEMU V2.8.01 Beta1 Build on `date +%Y%m%d`"
+    echo "CSKY_VERSION=$cskyversion" >> $config_host_mak
+  ;;
+  cskyv2|cskyv2eb)
+    TARGET_ARCH=cskyv2
+    TARGET_BASE_ARCH=csky
+    TARGET_ABI_DIR=csky
+    bflt="yes"
+    echo "TARGET_CSKYV2=y" >> $config_target_mak
+    cskyversion="CSKY QEMU V2.8.01 Beta1 Build on `date +%Y%m%d`"
+    echo "CSKY_VERSION=$cskyversion" >> $config_host_mak
   ;;
   cris)
   ;;
@@ -6048,6 +6097,23 @@ fi
 if test "$target_linux_user" = "yes" ; then
   echo "CONFIG_LINUX_USER=y" >> $config_target_mak
 fi
+case "$csky_osver" in
+  4*)
+    if test "$target_linux_user" = "yes" -a "$TARGET_BASE_ARCH" = "csky" ; then
+      echo "CONFIG_CSKY_KERNEL_4X=y" >> $config_target_mak
+    fi
+    ;;
+  3*)
+    if test "$target_linux_user" = "yes" -a "$TARGET_BASE_ARCH" = "csky" ; then
+      echo "CONFIG_CSKY_KERNEL_3X=y" >> $config_target_mak
+    fi
+    ;;
+  *)
+    if test "$target_linux_user" = "yes" -a "$TARGET_BASE_ARCH" = "csky" ; then
+      echo "CONFIG_CSKY_KERNEL_4X=y" >> $config_target_mak
+    fi
+esac
+
 list=""
 if test ! -z "$gdb_xml_files" ; then
   for x in $gdb_xml_files; do
@@ -6088,6 +6154,9 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
     if test -n "${cxx}"; then
       disas_config "ARM_A64"
     fi
+  ;;
+  csky)
+    disas_config "CSKY"
   ;;
   cris)
     disas_config "CRIS"
