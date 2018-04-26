@@ -290,7 +290,7 @@ static bool tb_cmp(const void *p, const void *d)
     return false;
 }
 
-static TranslationBlock *tb_htable_lookup(CPUState *cpu,
+TranslationBlock *tb_htable_lookup(CPUState *cpu,
                                           target_ulong pc,
                                           target_ulong cs_base,
                                           uint32_t flags)
@@ -333,20 +333,22 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
              * taken outside tb_lock. As system emulation is currently
              * single threaded the locks are NOPs.
              */
-            mmap_lock();
-            tb_lock();
-            have_tb_lock = true;
+            //mmap_lock();
+            //tb_lock();
+            //have_tb_lock = true;
 
             /* There's a chance that our desired tb has been translated while
              * taking the locks so we check again inside the lock.
              */
+            tb_lock();
             tb = tb_htable_lookup(cpu, pc, cs_base, flags);
+            tb_unlock();
             if (!tb) {
                 /* if no translated code available, then translate it now */
-                tb = tb_gen_code(cpu, pc, cs_base, flags, 0);
+                tb = wait_tb_gen_code(cpu, 0);
             }
 
-            mmap_unlock();
+            //mmap_unlock();
         }
 
         /* We add the TB in the virtual pc hash table for the fast lookup */

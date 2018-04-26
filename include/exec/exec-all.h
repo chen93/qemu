@@ -43,6 +43,10 @@ typedef ram_addr_t tb_page_addr_t;
 
 #include "qemu/log.h"
 
+TranslationBlock *tb_htable_lookup(CPUState *cpu,
+                                          target_ulong pc,
+                                          target_ulong cs_base,
+                                          uint32_t flags);
 void gen_intermediate_code(CPUArchState *env, struct TranslationBlock *tb);
 void restore_state_to_opc(CPUArchState *env, struct TranslationBlock *tb,
                           target_ulong *data);
@@ -56,6 +60,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
                               uint32_t flags,
                               int cflags);
+TranslationBlock *wait_tb_gen_code(CPUState *cpu, int cflags);
+void *qemu_tb_gen_cpu_thread_fn(void *arg);
+void tb_trans_init(void);
 
 void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
 void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
@@ -253,6 +260,7 @@ struct TranslationBlock {
      */
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_list_first;
+    target_ulong pc_next;
 };
 
 void tb_free(TranslationBlock *tb);

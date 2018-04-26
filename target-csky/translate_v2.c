@@ -9190,9 +9190,11 @@ done_translation:
             gen_helper_exception(cpu_env, t0);
         }
     } else {
+        tb->pc_next = 0;
         switch (ctx->is_jmp) {
         case DISAS_NEXT:
             gen_goto_tb(ctx, 1, ctx->pc);
+            tb->pc_next = ctx->pc;
             break;
         case DISAS_JUMP:
         case DISAS_UPDATE:

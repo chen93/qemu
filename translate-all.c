@@ -145,9 +145,21 @@ TCGContext tcg_ctx;
 bool parallel_cpus;
 
 /* translation block context */
-#ifdef CONFIG_USER_ONLY
-__thread int have_tb_lock;
-#endif
+//#ifdef CONFIG_USER_ONLY
+//__thread int have_tb_lock;
+//#endif
+static int have_tb_lock;
+
+static struct translate_tb_context {
+    QemuMutex   lock;
+    QemuCond    cond;
+
+    int32_t     has_req;
+    CPUState    *cpu;
+    uint32_t    cflags;
+    struct TranslationBlock *tb;
+} trans_ctx;
+
 
 static void page_table_config_init(void)
 {
@@ -169,32 +181,49 @@ static void page_table_config_init(void)
     assert(v_l2_levels >= 0);
 }
 
+void tb_trans_init(void)
+{
+    qemu_mutex_init(&trans_ctx.lock);
+    qemu_cond_init(&trans_ctx.cond);
+}
+
+void trans_lock(void)
+{
+    qemu_mutex_lock(&trans_ctx.lock);
+}
+
+void trans_unlock(void)
+{
+    qemu_mutex_unlock(&trans_ctx.lock);
+}
+
+QemuThread locked_thread;
 void tb_lock(void)
 {
-#ifdef CONFIG_USER_ONLY
-    assert(!have_tb_lock);
     qemu_mutex_lock(&tcg_ctx.tb_ctx.tb_lock);
+    assert(!have_tb_lock);
     have_tb_lock++;
-#endif
+    qemu_thread_get_self(&locked_thread);
 }
 
 void tb_unlock(void)
 {
-#ifdef CONFIG_USER_ONLY
     assert(have_tb_lock);
     have_tb_lock--;
     qemu_mutex_unlock(&tcg_ctx.tb_ctx.tb_lock);
-#endif
 }
 
 void tb_lock_reset(void)
 {
-#ifdef CONFIG_USER_ONLY
     if (have_tb_lock) {
-        qemu_mutex_unlock(&tcg_ctx.tb_ctx.tb_lock);
-        have_tb_lock = 0;
+        if (qemu_thread_is_self(&locked_thread)) {
+            qemu_mutex_unlock(&tcg_ctx.tb_ctx.tb_lock);
+            have_tb_lock = 0;
+        } else {
+            tb_lock();
+            tb_unlock();
+        }
     }
-#endif
 }
 
 #ifdef DEBUG_LOCKING
@@ -1395,6 +1424,95 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
      */
     tb_link_page(tb, phys_pc, phys_page2);
     return tb;
+}
+
+/* Request to gen tb in tb_gen thread.  */
+TranslationBlock *wait_tb_gen_code(CPUState *cpu, int cflags)
+{
+    trans_lock();
+    trans_ctx.cflags = cflags;
+    trans_ctx.cpu = cpu;
+    trans_ctx.tb = NULL;
+    trans_ctx.has_req = 1;
+
+    qemu_cond_wait(&trans_ctx.cond, &trans_ctx.lock);
+    trans_unlock();
+    return trans_ctx.tb;
+}
+
+void *qemu_tb_gen_cpu_thread_fn(void *arg)
+{
+    CPUState *last_cpu = NULL;
+    target_ulong last_pc = 0, last_cs_base = 0;
+    uint32_t last_cflags, last_flags;
+    TranslationBlock *tb;
+    int cnt = 0;
+    rcu_read_lock();
+
+    while(1) {
+        target_ulong cs_base, pc;
+        uint32_t flags, cflags;
+        CPUState *cpu;
+        CPUArchState *env;
+        uint32_t tb_for_req = 0;
+
+        trans_lock();
+        if (trans_ctx.has_req == 1) {
+            /* TODO: lockup again */
+            trans_ctx.has_req = 0;
+            cnt = 0;
+            cpu = trans_ctx.cpu;
+            cflags = trans_ctx.cflags;
+            env = (CPUArchState *)cpu->env_ptr;
+            cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
+            tb = tb_htable_lookup(cpu, pc, cs_base, flags);
+            if (tb != NULL) {
+                trans_ctx.tb = tb;
+                qemu_cond_signal(&trans_ctx.cond);
+                trans_unlock();
+                continue;
+            }
+            tb_for_req = 1;
+            trans_unlock();
+        } else if (last_cpu != NULL && cnt < 5) {
+            trans_unlock();
+            cpu = last_cpu;
+            env = (CPUArchState *)cpu->env_ptr;
+            pc = last_pc;
+            cs_base = last_cs_base;
+            flags = last_flags;
+            cflags = last_cflags;
+            cnt++;
+        } else {
+            trans_unlock();
+            usleep(10);
+            continue;
+        }
+
+        mmap_lock();
+        tb_lock();
+        tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
+        mmap_unlock();
+        tb_unlock();
+        if (tb->pc_next != 0) {
+            last_cpu = cpu;
+            last_pc = tb->pc_next;
+            last_cs_base = cs_base;
+            last_flags = flags;
+            last_cflags = cflags;
+        } else {
+            last_cpu = NULL;
+        }
+
+        if (tb_for_req == 1) {
+            trans_lock();
+            tb_for_req = 0;
+            trans_ctx.tb = tb;
+            qemu_cond_signal(&trans_ctx.cond);
+            trans_unlock();
+        }
+    }
+    rcu_read_unlock();
 }
 
 /*

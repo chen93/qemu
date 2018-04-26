@@ -309,6 +309,7 @@ struct CPUState {
     int numa_node;
 
     struct QemuThread *thread;
+    struct QemuThread *tb_thread;
 #ifdef _WIN32
     HANDLE hThread;
 #endif
@@ -404,7 +405,8 @@ extern struct CPUTailQ cpus;
     QTAILQ_FOREACH_REVERSE(cpu, &cpus, CPUTailQ, node)
 #define first_cpu QTAILQ_FIRST(&cpus)
 
-extern __thread CPUState *current_cpu;
+//extern __thread CPUState *current_cpu;
+extern CPUState *current_cpu;
 
 /**
  * cpu_paging_enabled:

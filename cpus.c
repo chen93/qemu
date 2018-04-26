@@ -1148,9 +1148,12 @@ static void deal_with_unplugged_cpus(void)
     }
 }
 
+#define VCPU_THREAD_NAME_SIZE 16
+
 static void *qemu_tcg_cpu_thread_fn(void *arg)
 {
     CPUState *cpu = arg;
+    char thread_name[VCPU_THREAD_NAME_SIZE];
 
     rcu_register_thread();
 
@@ -1178,6 +1181,13 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
     atomic_mb_set(&exit_request, 1);
 
     cpu = first_cpu;
+
+    cpu->tb_thread = g_malloc0(sizeof(QemuThread));
+    snprintf(thread_name, VCPU_THREAD_NAME_SIZE, "CPU %d/TRANS",
+             cpu->cpu_index);
+    tb_trans_init();
+    qemu_thread_create(cpu->tb_thread, thread_name, qemu_tb_gen_cpu_thread_fn,
+                       cpu, QEMU_THREAD_JOINABLE);
 
     while (1) {
         /* Account partial waits to QEMU_CLOCK_VIRTUAL.  */
@@ -1387,7 +1397,7 @@ void cpu_remove_sync(CPUState *cpu)
 }
 
 /* For temporary buffers for forming a name */
-#define VCPU_THREAD_NAME_SIZE 16
+//#define VCPU_THREAD_NAME_SIZE 16
 
 static void qemu_tcg_init_vcpu(CPUState *cpu)
 {
