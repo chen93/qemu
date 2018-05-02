@@ -309,6 +309,11 @@ TranslationBlock *tb_htable_lookup(CPUState *cpu,
     return qht_lookup(&tcg_ctx.tb_ctx.htable, tb_cmp, &desc, h);
 }
 
+#ifdef DEBUG_TRANS
+int     pre_hit;
+int     req_hit;
+#endif
+
 static inline TranslationBlock *tb_find(CPUState *cpu,
                                         TranslationBlock *last_tb,
                                         int tb_exit)
@@ -376,6 +381,16 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     if (have_tb_lock) {
         tb_unlock();
     }
+#ifdef DEBUG_TRANS
+    if (tb->pre_hit == 0) {
+        if (tb->pflag == TB_FROM_REQ) {
+            req_hit++;
+        } else {
+            pre_hit++;
+        }
+        tb->pre_hit = 1;
+    }
+#endif
     return tb;
 }
 

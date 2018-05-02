@@ -45,6 +45,11 @@ static uint64_t csky_exit_read(void *opaque, hwaddr offset, unsigned size)
 static void csky_exit_write(void *opaque, hwaddr offset,
                             uint64_t value, unsigned size)
 {
+#ifdef DEBUG_TRANS
+    printf("pre tb: %d\nreq tb: %d\npre-hit: %d\nrep-hit: %d\n",
+           pre_tbs, req_tbs, pre_hit, req_hit);
+#endif
+
     switch (offset) {
     case EXIT_RETURN_VALUE:
         qemu_log_mask(LOG_GUEST_ERROR,

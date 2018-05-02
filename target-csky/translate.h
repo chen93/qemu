@@ -34,6 +34,8 @@ typedef struct DisasContext {
     int singlestep_enabled;
     uint32_t insn;
 
+    target_ulong next_pc;
+
     /* Routine used to access memory */
     int mem_idx;   /*selects user or supervisor access*/
     int is_jmp;

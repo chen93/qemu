@@ -1440,6 +1440,11 @@ TranslationBlock *wait_tb_gen_code(CPUState *cpu, int cflags)
     return trans_ctx.tb;
 }
 
+#ifdef DEBUG_TRANS
+int req_tbs;
+int pre_tbs;
+#endif
+
 void *qemu_tb_gen_cpu_thread_fn(void *arg)
 {
     CPUState *last_cpu = NULL;
@@ -1504,6 +1509,17 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             last_cpu = NULL;
         }
 
+#ifdef DEBUG_TRANS
+        tb->pre_hit = 0;
+        if(tb_for_req == 1) {
+            tb->pflag = TB_FROM_REQ;
+            req_tbs++;
+        }
+        else {
+            tb->pflag = TB_FROM_PRE;
+            pre_tbs++;
+        }
+#endif
         if (tb_for_req == 1) {
             trans_lock();
             tb_for_req = 0;

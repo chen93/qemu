@@ -261,6 +261,10 @@ struct TranslationBlock {
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_list_first;
     target_ulong pc_next;
+#ifdef DEBUG_TRANS
+    int     pflag;
+    int     pre_hit;
+#endif
 };
 
 void tb_free(TranslationBlock *tb);

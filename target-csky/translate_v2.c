@@ -321,6 +321,7 @@ static inline void gen_goto_tb(DisasContext *ctx, int n, uint32_t dest)
     TCGv t0 = tcg_temp_new();
 
     tb = ctx->tb;
+    ctx->next_pc = dest;
 
     if (unlikely(ctx->singlestep_enabled)) {
         gen_save_pc(dest);
@@ -9203,6 +9204,7 @@ done_translation:
             break;
         case DISAS_TB_JUMP:
             /* nothing more to generate */
+            tb->pc_next = ctx->next_pc;
             break;
         }
     }
