@@ -1448,8 +1448,7 @@ int pre_tbs;
 void *qemu_tb_gen_cpu_thread_fn(void *arg)
 {
     CPUState *last_cpu = NULL;
-    target_ulong last_pc = 0, last_cs_base = 0;
-    uint32_t last_cflags, last_flags;
+    target_ulong last_pc = 0;
     TranslationBlock *tb;
     int cnt = 0;
     rcu_read_lock();
@@ -1484,13 +1483,12 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             cpu = last_cpu;
             env = (CPUArchState *)cpu->env_ptr;
             pc = last_pc;
-            cs_base = last_cs_base;
-            flags = last_flags;
-            cflags = last_cflags;
+            cpu_get_predict_tb_cpu_state(env, &cs_base, &flags);
+            cflags = 0;
             cnt++;
         } else {
             trans_unlock();
-            usleep(10);
+            usleep(1);
             continue;
         }
 
@@ -1502,9 +1500,6 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
         if (tb->pc_next != 0) {
             last_cpu = cpu;
             last_pc = tb->pc_next;
-            last_cs_base = cs_base;
-            last_flags = flags;
-            last_cflags = cflags;
         } else {
             last_cpu = NULL;
         }

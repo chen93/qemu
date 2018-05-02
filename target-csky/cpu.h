@@ -486,4 +486,18 @@ static inline void cpu_get_tb_cpu_state(CPUCSKYState *env, target_ulong *pc,
 #endif
 }
 
+static inline void cpu_get_predict_tb_cpu_state(CPUCSKYState *env,
+                                                target_ulong *cs_base,
+                                                uint32_t *flags)
+{
+    *cs_base = 0;
+    *flags = (env->psr_s << CSKY_TBFLAG_PSR_S_SHIFT)
+        | (env->psr_bm << CSKY_TBFLAG_PSR_BM_SHIFT)
+        | (env->sce_condexec_bits << CSKY_TBFLAG_SCE_CONDEXEC_SHIFT)
+        | (env->mmu.meh & 0xff) << CSKY_TBFLAG_ASID_SHIFT
+        | (env->psr_tm << CSKY_TBFLAG_PSR_TM_SHIFT)
+        | (env->psr_t << CSKY_TBFLAG_PSR_T_SHIFT)
+        | (env->idly4_counter << CSKY_TBFLAG_IDLY4_SHIFT);
+}
+
 #endif /* CSKY_CPU_H */
