@@ -58,7 +58,7 @@
 #include "exec/log.h"
 
 /* #define DEBUG_TB_INVALIDATE */
-/* #define DEBUG_TB_FLUSH */
+#define DEBUG_TB_FLUSH
 /* #define DEBUG_LOCKING */
 /* make various TB consistency checks */
 /* #define DEBUG_TB_CHECK */
@@ -1307,7 +1307,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     int64_t ti;
 #endif
     assert_memory_lock();
-
+    //qemu_log("pc start = 0x%x\n", pc);
     phys_pc = get_page_addr_code(env, pc);
     if (use_icount && !(cflags & CF_IGNORE_ICOUNT)) {
         cflags |= CF_USE_ICOUNT;
@@ -1478,13 +1478,25 @@ void *qemu_tb_gen_cpu_thread_fn(void *arg)
             }
             tb_for_req = 1;
             trans_unlock();
-        } else if (last_cpu != NULL && cnt < 5) {
+        } else if (last_cpu != NULL && cnt < 3) {
             trans_unlock();
             cpu = last_cpu;
             env = (CPUArchState *)cpu->env_ptr;
             pc = last_pc;
             cpu_get_predict_tb_cpu_state(env, &cs_base, &flags);
             cflags = 0;
+
+            tb = atomic_rcu_read(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)]);
+            if (unlikely(!tb || tb->pc != pc || tb->cs_base != cs_base ||
+                         tb->flags != flags)) {
+                tb = tb_htable_lookup(cpu, pc, cs_base, flags);
+                if (tb != NULL) {
+                    last_cpu = NULL;
+                    continue;
+                }
+            } else {
+                continue;
+            }
             cnt++;
         } else {
             trans_unlock();

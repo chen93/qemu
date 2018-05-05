@@ -321,7 +321,9 @@ static inline void gen_goto_tb(DisasContext *ctx, int n, uint32_t dest)
     TCGv t0 = tcg_temp_new();
 
     tb = ctx->tb;
-    ctx->next_pc = dest;
+    if (ctx->next_pc == 0) {
+        ctx->next_pc = dest;
+    }
 
     if (unlikely(ctx->singlestep_enabled)) {
         gen_save_pc(dest);
@@ -8932,7 +8934,7 @@ void gen_intermediate_code(CPUCSKYState *env, TranslationBlock *tb)
     cpu_F1d = tcg_temp_new_i64();
 
     pc_start = tb->pc;
-
+    ctx->next_pc = 0;
     ctx->pc = pc_start;
     ctx->tb = tb;
     ctx->singlestep_enabled = cs->singlestep_enabled;
